@@ -16,48 +16,32 @@ jobs:
     name: Windows
     runs-on: windows-latest
     env:
-      MSBUILD_PATH: "C:/Program Files (x86)/Microsoft Visual Studio/2017/Community/MSBuild/15.0/Bin"
+      MSBUILD_PATH: "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/MSBuild/Current/Bin"
       LABEL: windows
     steps:
       - uses: actions/checkout@v2
 
-      - name: Set Visual Studio 2017 PATH
+      - name: Set up Visual Studio
+        uses: actions/setup-msbuild@v1
+
+      - name: Install Boost
         run: |
-          set PATH="C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\Common7\IDE":%PATH%
-          set PATH="C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\MSBuild\15.0\Bin":%PATH%
-          set PATH="C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\Bin":%PATH%
-
-      - name: Install Visual Studio 2017 Community
-        run: |
-          choco install visualstudio2017community --version=15.9.37
-          choco install visualstudio2017-workload-vctools
-          choco install visualcpp-build-tools
-
-      - name: Install OpenSSL
-        run: choco install openssl
-
-      # Install boost
-      - name: Install Boost 1.68.0
-        run: |
-          $link = "https://jaist.dl.sourceforge.net/project/boost/boost-binaries/1.68.0/boost_1_68_0-msvc-14.1-64.exe"
-          $path = "C:\boost.exe"
-          [Net.WebClient]::new().DownloadFile($link, $path)
-          Start-Process C:\boost.exe -ArgumentList "/DIR=C:\local\boost_1_68_0","/VERYSILENT" -Wait
-          Get-ChildItem C:\local\boost_1_68_0
-
+          choco install boost-msvc-14.1
+        shell: powershell
+        
       # Configure project with cmake
       - name: Configure
         run: |
           mkdir build
           cd build
-          cmake -G "Visual Studio 15 2017 Win64" .. -DBOOST_ROOT=C:/local/boost_1_68_0
+          cmake -G "Visual Studio 16 2019" -A x64 .. -DBOOST_ROOT=C:/local/boost_1_68_0
 
       # Build for Windows
       - name: Build
         run: |
           $env:PATH = "$env:PATH;$env:MSBUILD_PATH"
           cd build
-          MSBuild Lumanex.sln /p:Configuration=Release /p:PlatformToolset=v141 /m
+          MSBuild Lumanex.sln /p:Configuration=Release /p:Platform=x64 /m
 
 
       # Test the crypto
