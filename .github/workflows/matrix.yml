@@ -16,19 +16,14 @@ jobs:
     name: Windows
     runs-on: windows-latest
     env:
-      MSBUILD_PATH: "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/MSBuild/Current/Bin"
+      MSBUILD_PATH: "C:/Program Files (x86)/Microsoft Visual Studio/2017/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin"
       LABEL: windows
     steps:
       - uses: actions/checkout@v2
 
-      - name: Setup clcache
-        run: pip install clcache
-
-      - name: Retrieve clcache
-        uses: actions/cache@v1
-        with:
-          path: clcache
-          key: clcache-windows
+      - name: Install Visual Studio 2017 Community
+        run: |
+          choco install visualstudio2017community --version=15.9.37
 
       - name: Install OpenSSL
         run: choco install openssl
@@ -52,10 +47,9 @@ jobs:
       # Build for Windows
       - name: Build
         run: |
-          $env:CLCACHE_DIR = "$env:GITHUB_WORKSPACE\clcache"
           $env:PATH = "$env:PATH;$env:MSBUILD_PATH"
           cd build
-          MSBuild cirquity.sln /p:CLToolExe=clcache.exe /p:Configuration=Release /p:PlatformToolset=v141 /m
+          MSBuild Lumanex.sln /p:Configuration=Release /p:PlatformToolset=v141 /m
 
 
       # Test the crypto
