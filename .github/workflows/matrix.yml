@@ -21,9 +21,15 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
+      - name: Set Visual Studio 2017 PATH
+        run: |
+          set PATH="C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\Common7\IDE":%PATH%
+          set PATH="C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\Bin":%PATH%
+
       - name: Install Visual Studio 2017 Community
         run: |
           choco install visualstudio2017community --version=15.9.37
+          choco install visualstudio2017-workload-vctools
 
       - name: Install OpenSSL
         run: choco install openssl
