@@ -31,6 +31,7 @@ jobs:
         run: |
           choco install visualstudio2017community --version=15.9.37
           choco install visualstudio2017-workload-vctools
+          choco install visualcpp-build-tools
 
       - name: Install OpenSSL
         run: choco install openssl
