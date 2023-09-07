@@ -1,160 +1,309 @@
-name: Lumanex Master Pipeline
-
-env:
-  GITHUB_REGISTRY: "ghcr.io"
-  GITHUB_OWNER: "LumanexDev"
-  GITHUB_DOCKER_IMAGE: "lumanex"
-
+name: Build
 on:
   push:
-    branches:
-      - main
+  pull_request:
+  release:
+    types: [published]
+  schedule:
+    - cron: '30 3 * * 0'
+
+env:
+  TAG: ${{ github.ref }}
 
 jobs:
-  build:
-    name: "Build: ${{ matrix.config.name }} / ${{ matrix.config.platform }}"
-    runs-on: ${{ matrix.config.os }}
+  # Common Build matrix for builds on Ubuntu VM
+  ubuntu_build:
+    name: ${{ matrix.build_name }}
+    runs-on: ubuntu-latest
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
-        config:
-          - {
-              name: "Ubuntu 20.04 GCC",
-              artifact: "lumanex-ubuntu-20",
-              os: ubuntu-20.04,
-              cc: "gcc",
-              cxx: "g++",
-              platform: x64,
-            }
-          - {
-              name: "Ubuntu 22.04 GCC",
-              artifact: "lumanex-ubuntu-22",
-              os: ubuntu-22.04,
-              cc: "gcc",
-              cxx: "g++",
-              platform: x64,
-            }
+        # Add more compilers here if you need them
+        build_name: [ 'Ubuntu GCC 7', 'Ubuntu GCC 8', 'aarch64' ]
+        include:
+          - build_name: 'Ubuntu GCC 7'
+            package_name: 'gcc-7 g++-7'
+            cc: gcc-7
+            cxx: g++-7
+            label: linux-gcc-7
+            deployable: false
+          - build_name: 'Ubuntu GCC 8'
+            package_name: 'gcc-8 g++-8'
+            cc: gcc-8
+            cxx: g++-8
+            label: linux
+            deployable: true
+          - build_name: 'aarch64'
+            label: aarch64
+            deployable: true
+
+    env:
+      CCACHE_DIR: $GITHUB_WORKSPACE/.ccache
+      LABEL: ${{ matrix.label }}
     steps:
       - uses: actions/checkout@v2
 
-      - name: "Install ${{ matrix.config.name }} Dependencies "
-        if: matrix.config.os == 'ubuntu-20.04'
+      # Fetch Dependencies
+      - name: Dependencies
+        if: matrix.build_name != 'aarch64'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libboost-dev libboost-all-dev libssl-dev libffi-dev python3-dev gcc-11 g++-11 git cmake librocksdb-dev cron rpcbind libboost-system1.71.0 libboost-filesystem1.71.0 libboost-thread1.71.0 libboost-date-time1.71.0 libboost-chrono1.71.0 libboost-regex1.71.0 libboost-serialization1.71.0 libboost-program-options1.71.0 libicu66
-
-      - name: "Install ${{ matrix.config.name }} Dependencies "
-        if: matrix.config.os == 'ubuntu-22.04'
+          sudo apt update
+          sudo apt install -y libboost-all-dev libssl-dev ${{ matrix.package_name }}
+      - name: Setup ccache
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libboost-dev libboost-all-dev libssl-dev libffi-dev python3-dev gcc-11 g++-11 git cmake librocksdb-dev cron rpcbind libboost-system1.74.0 libboost-filesystem1.74.0 libboost-thread1.74.0 libboost-date-time1.74.0 libboost-chrono1.74.0 libboost-regex1.74.0 libboost-serialization1.74.0 libboost-program-options1.74.0 libicu70
-
-      - name: mkdir build
-        if: ${{ contains(matrix.config.name, 'ubuntu') }}
-        run: mkdir build
-
-      - name: Build Ubuntu Target
-        if: ${{ contains(matrix.config.name, 'ubuntu') }}
-        run: |
-          cmake -DBoost_ARCHITECTURE=-x64 ..
-          make
-        working-directory: build
-
-      - name: Upload Ubuntu Artifact
-        if: ${{ contains(matrix.config.name, 'ubuntu') }}
-        uses: actions/upload-artifact@v3
+          sudo apt install ccache
+      - name: Retrieve ccache
+        uses: actions/cache@v1
         with:
-          name: ${{ matrix.config.artifact }}
-          path: |
-            build/src/Lumanexd
-            build/src/Lumanex-Wallet
-            build/src/Lumanex-Wallet-API
-            build/src/Lumanex-Service
-            build/src/Lumanex-Miner
+          path: .ccache
+          key: ccache-${{ matrix.label }}
 
-  docker-testnet:
-    name: Build and Publish Docker Image for testnet
-    runs-on: ubuntu-22.04
-    needs: [build]
-    steps:
-      - uses: actions/checkout@v2
-      - uses: benjlevesque/short-sha@v1.2
-
-      - name: Log into registry ghcr.io
-        uses: docker/login-action@v1
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_PAT }}
-
-      - name: Build Docker
-        run: |
-          docker build -t $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE-testnet:${{ env.SHA }} -f Dockerfile.test . --no-cache
-
-      - name: Tag Image
-        run: |
-          docker tag $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE-testnet:${{ env.SHA }} $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE-testnet:latest
-          docker tag $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE-testnet:${{ env.SHA }} mjovanc/$GITHUB_DOCKER_IMAGE-testnet:${{ env.SHA }}
-          docker tag $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE-testnet:${{ env.SHA }} mjovanc/$GITHUB_DOCKER_IMAGE-testnet:latest
-
-      - name: Publish Docker to GitHub Repository
-        run: |
-          docker push $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE-testnet:${{ env.SHA }}
-          docker push $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE-testnet:latest
-
-      - uses: actions/checkout@v2
-      - name: Login into Docker Hub
+      # Configure the project with cmake
+      - name: Configure
+        if: matrix.build_name != 'aarch64'
         env:
-          DOCKER_HUB_USER: ${{secrets.DOCKER_HUB_USER}}
-          DOCKER_HUB_PASSWORD: ${{secrets.DOCKER_HUB_PASSWORD}}
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
         run: |
-          docker login -u $DOCKER_HUB_USER -p $DOCKER_HUB_PASSWORD
+          mkdir build && cd build
+          cmake -DARCH=default -DCMAKE_BUILD_TYPE=Release -DSTATIC=true ..
 
-      - name: Publish Docker to Docker Hub
+      # Build for linux
+      - name: Build
+        if: matrix.build_name != 'aarch64'
         run: |
-          docker push mjovanc/$GITHUB_DOCKER_IMAGE-testnet:${{ env.SHA }}
-          docker push mjovanc/$GITHUB_DOCKER_IMAGE-testnet:latest
+          cd build
+          make -j2
 
-  docker-mainnet:
-    name: Build and Publish Docker Image for main-net
-    runs-on: ubuntu-22.04
-    needs: [build]
-    if: startsWith(github.ref, 'refs/tags/v')
+      # Build for aarch64
+      - name: Prepare and Build (aarch64)
+        if: matrix.build_name == 'aarch64'
+        run: |
+          source scripts/prep-aarch64.sh
+          mkdir build && cd build
+          cmake -DARCH=default -DCMAKE_BUILD_TYPE=Release -DSTATIC=true ..
+          make -j2
+          cd src
+          TARGETS="Lumanexd Lumanex-Miner Lumanex-Wallet Lumanex-Service cryptotest Lumanex-Wallet-API"
+          ${STRIP} ${TARGETS}
+
+      # Test the crypto
+      - name: Test Crypto
+        if: matrix.build_name != 'aarch64'
+        run: |
+          cd build/src
+          ./cryptotest
+
+      # Prepare for deploy
+      - name: Prepare for Deploy
+        id: before_deploy
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          if [[ "${TAG:5:4}" == "tags" ]]; then export TAG=${TAG:10}; else export TAG=${COMMIT_SHA}; fi
+          cd build/src
+          TARGETS="Lumanexd Lumanex-Miner Lumanex-Wallet Lumanex-Service cryptotest Lumanex-Wallet-API"
+          if [[ "${LABEL}" != "aarch64" ]]; then strip ${TARGETS}; fi
+          rm -rf lumanex-${TAG}
+          mkdir lumanex-${TAG}
+          cp ${TARGETS} lumanex-${TAG}/
+          cp ../../LICENSE lumanex-${TAG}/
+          tar cvfz lumanex-${LABEL}-${TAG}.tar.gz lumanex-${TAG}/
+          echo ::set-output name=binary_path::lumanex-${TAG}
+          echo ::set-output name=artifact_name::lumanex-${LABEL}-${TAG}
+          echo ::set-output name=file_name::lumanex-${LABEL}-${TAG}.tar.gz
+
+      # Upload to GH Release
+      - name: Upload to GH Release
+        if: github.event_name == 'release' && matrix.deployable
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./build/src/${{ steps.before_deploy.outputs.file_name }}
+          asset_name: ${{ steps.before_deploy.outputs.file_name }}
+          asset_content_type: application/gzip
+
+      # Upload to GH Actions Artifacts
+      - name: Upload To GH Artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ steps.before_deploy.outputs.artifact_name }}
+          path: ./build/src/${{ steps.before_deploy.outputs.binary_path }}
+
+  # Mac builds on Catalina VM
+  macos_build:
+    name: macOS
+    runs-on: macos-latest
+    env:
+      CC: /usr/local/opt/llvm@8/bin/clang
+      CXX: /usr/local/opt/llvm@8/bin/clang++
+      LABEL: osx
+      CCACHE_DIR: $GITHUB_WORKSPACE/.ccache
     steps:
       - uses: actions/checkout@v2
-      - uses: benjlevesque/short-sha@v1.2
 
-      - name: Log into registry ghcr.io
-        uses: docker/login-action@v1
+      # Fetch Dependencies
+      - name: Dependencies
+        run: |
+          brew uninstall llvm
+          brew install --force boost llvm@8 ccache
+          brew link --overwrite llvm@8
+          ln -s /usr/local/opt/llvm@8 /usr/local/opt/llvm
+
+      - name: Retrieve ccache
+        uses: actions/cache@v1
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_PAT }}
+          path: .ccache
+          key: ccache-osx
 
-      - name: Build Docker
+      # Configure project with cmake
+      - name: Configure
         run: |
-          docker build -t $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE:${{ env.SHA }} . --no-cache
+          mkdir build && cd build
+          cmake -DARCH=default -DCMAKE_BUILD_TYPE=Release -DSTATIC=true ..
 
-      - name: Tag Image
+      # Build for macOS
+      - name: Build
         run: |
-          docker tag $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE:${{ env.SHA }} $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE:latest
-          docker tag $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE:${{ env.SHA }} mjovanc/$GITHUB_DOCKER_IMAGE:${{ env.SHA }}
-          docker tag $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE:${{ env.SHA }} mjovanc/$GITHUB_DOCKER_IMAGE:latest
+          cd build
+          make -j2
 
-      - name: Publish Docker to GitHub Repository
+      # Test the crypto
+      - name: Test Crypto
+        if: matrix.build_name != 'aarch64'
         run: |
-          docker push $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE:${{ env.SHA }}
-          docker push $GITHUB_REGISTRY/$GITHUB_OWNER/$GITHUB_DOCKER_IMAGE:latest
+          cd build/src
+          ./cryptotest
 
-      - uses: actions/checkout@v2
-      - name: Login into Docker Hub
+      # Prepare for deploy
+      - name: Prepare for Deploy
+        id: before_deploy
         env:
-          DOCKER_HUB_USER: ${{secrets.DOCKER_HUB_USER}}
-          DOCKER_HUB_PASSWORD: ${{secrets.DOCKER_HUB_PASSWORD}}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
-          docker login -u $DOCKER_HUB_USER -p $DOCKER_HUB_PASSWORD
+          if [[ "${TAG:5:4}" == "tags" ]]; then export TAG=${TAG:10}; else export TAG=${COMMIT_SHA}; fi
+          cd build/src
+          TARGETS="Lumanexd Lumanex-Miner Lumanex-Wallet Lumanex-Service cryptotest Lumanex-Wallet-API"
+          strip ${TARGETS}
+          rm -rf lumanex-${TAG}
+          mkdir lumanex-${TAG}
+          cp ${TARGETS} lumanex-${TAG}/
+          cp ../../LICENSE lumanex-${TAG}/
+          tar cvfz lumanex-${LABEL}-${TAG}.tar.gz lumanex-${TAG}/
+          echo ::set-output name=binary_path::lumanex-${TAG}
+          echo ::set-output name=artifact_name::lumanex-${LABEL}-${TAG}
+          echo ::set-output name=file_name::lumanex-${LABEL}-${TAG}.tar.gz
 
-      - name: Publish Docker to Docker Hub
+
+      # Upload to GH Release
+      - name: Upload to GH Release
+        if: github.event_name == 'release'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./build/src/${{ steps.before_deploy.outputs.file_name }}
+          asset_name: ${{ steps.before_deploy.outputs.file_name }}
+          asset_content_type: application/gzip
+
+      # Upload to GH Actions Artifacts
+      - name: Upload To GH Artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ steps.before_deploy.outputs.artifact_name }}
+          path: ./build/src/${{ steps.before_deploy.outputs.binary_path }}
+
+  # Windows Builds on Windows Server 2019
+  windows_build:
+    name: Windows
+    runs-on: windows-latest
+    env:
+      MSBUILD_PATH: "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/MSBuild/Current/Bin"
+      LABEL: windows
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup clcache
+        run: pip install clcache
+
+      - name: Retrieve clcache
+        uses: actions/cache@v1
+        with:
+          path: clcache
+          key: clcache-windows
+
+      - name: Install OpenSSL
+        run: choco install openssl
+
+      # Install boost
+      - name: Install Boost 1.69.0
         run: |
-          docker push mjovanc/$GITHUB_DOCKER_IMAGE:${{ env.SHA }}
-          docker push mjovanc/$GITHUB_DOCKER_IMAGE:latest
+          $link = "https://jaist.dl.sourceforge.net/project/boost/boost-binaries/1.69.0/boost_1_69_0-msvc-14.1-64.exe"
+          $path = "C:\boost.exe"
+          [Net.WebClient]::new().DownloadFile($link, $path)
+          Start-Process C:\boost.exe -ArgumentList "/DIR=C:\local\boost_1_69_0","/VERYSILENT" -Wait
+          Get-ChildItem C:\local\boost_1_69_0
+
+      # Configure project with cmake
+      - name: Configure
+        run: |
+          mkdir build
+          cd build
+          cmake -G "Visual Studio 16 2019" -A x64 .. -DARCH=default -DBOOST_ROOT=C:/local/boost_1_69_0
+
+      # Build for Windows
+      - name: Build
+        run: |
+          $env:CLCACHE_DIR = "$env:GITHUB_WORKSPACE\clcache"
+          $env:PATH = "$env:PATH;$env:MSBUILD_PATH"
+          cd build
+          MSBuild cirquity.sln /p:CLToolExe=clcache.exe /p:Configuration=Release /p:PlatformToolset=v141 /m
+
+
+      # Test the crypto
+      - name: Test Crypto
+        shell: bash
+        run: |
+          cd build/src/Release
+          ./cryptotest.exe
+
+      # Prepare for deploy
+      - name: Prepare for Deploy
+        shell: bash
+        id: before_deploy
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          if [[ "${TAG:5:4}" == "tags" ]]; then export TAG=${TAG:10}; else export TAG=${COMMIT_SHA}; fi
+          cd build/src/Release
+          rm -rf lumanex-${TAG}
+          mkdir lumanex-${TAG}
+          cp *.exe lumanex-${TAG}/
+          cp ../../../LICENSE lumanex-${TAG}/
+          7z a lumanex-${LABEL}-${TAG}.zip lumanex-${TAG}/
+          echo ::set-output name=binary_path::lumanex-${TAG}
+          echo ::set-output name=artifact_name::lumanex-${LABEL}-${TAG}
+          echo ::set-output name=file_name::lumanex-${LABEL}-${TAG}.zip
+
+
+      # Upload to GH Release
+      - name: Upload to GH Release
+        if: github.event_name == 'release'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./build/src/Release/${{ steps.before_deploy.outputs.file_name }}
+          asset_name: ${{ steps.before_deploy.outputs.file_name }}
+          asset_content_type: application/zip
+
+      # Upload to GH Actions Artifacts
+      - name: Upload To GH Artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ steps.before_deploy.outputs.artifact_name }}
+          path: ./build/src/Release/${{ steps.before_deploy.outputs.binary_path }}
