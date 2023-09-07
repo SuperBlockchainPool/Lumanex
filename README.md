@@ -9,7 +9,7 @@ LICENSES:
 // Copyright (c) 2023, The Lumanex Team
 ```
 
-[Website](https://lumanex.org) | [Official Pool](https://pool.lumanex.org/) | [Official Block Explorer](https://explorer.lumanex.org/) | [Discord](https://discord.gg/VqsQntFK) | [Twitter](https://twitter.com/LumanexProject)
+[Website](https://lumanex.org) | [Official Pool](https://pool.lumanex.org/) | [Official Block Explorer](https://explorer.lumanex.org/) | [Discord](https://discord.gg/v6ky9QPPkW) | [Twitter](https://twitter.com/LumanexProject)
 
 ![Download Count](https://img.shields.io/github/downloads/Lumanex-Project/Lumanex/total.svg)
 ![Open Issue Count](https://img.shields.io/github/issues/Lumanex-Project/Lumanex)
