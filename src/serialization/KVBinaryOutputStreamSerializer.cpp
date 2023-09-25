@@ -3,10 +3,9 @@
 //
 // Please see the included LICENSE file for more information.
 
+#include <limits>
 #include "KVBinaryOutputStreamSerializer.h"
-
 #include "KVBinaryCommon.h"
-
 #include <cassert>
 #include <common/StreamTools.h>
 #include <stdexcept>

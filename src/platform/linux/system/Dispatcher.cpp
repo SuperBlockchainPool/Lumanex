@@ -8,6 +8,7 @@
 #include "ErrorMessage.h"
 
 #include <cassert>
+#include <stdexcept>
 #include <fcntl.h>
 #include <string.h>
 #include <sys/epoll.h>
@@ -15,6 +16,7 @@
 #include <sys/timerfd.h>
 #include <ucontext.h>
 #include <unistd.h>
+#include <pthread.h>
 
 namespace System
 {

@@ -73,7 +73,7 @@
 #endif
 
 #define pre_aes()                                       \
-    j = a[0] & mask;                                    \
+     j = state_index(a, lightFlag);                                    \
     _c = _mm_load_si128(R128(&hp_state[j]));            \
     _a = _mm_load_si128(R128(a));                       \
 
@@ -91,7 +91,7 @@
     _mm_store_si128(R128(c), _c);                               \
     _mm_store_si128(R128(&hp_state[j]), _mm_xor_si128(_b, _c)); \
     VARIANT1_1(&hp_state[j]);                                   \
-    j = c[0] & mask;                                            \
+    j = state_index(c, lightFlag);                                            \
     p = U64(&hp_state[j]);                                      \
     b[0] = p[0];                                                \
     b[1] = p[1];                                                \
@@ -512,12 +512,12 @@ void cn_slow_hash(
     int prehashed,
     uint32_t page_size,
     uint32_t scratchpad,
-    uint32_t iterations,
-    uint64_t mask)
+    uint32_t iterations)
 {
     uint32_t TOTALBLOCKS = (page_size / AES_BLOCK_SIZE);
     uint32_t init_rounds = (scratchpad / INIT_SIZE_BYTE);
     uint32_t aes_rounds = (iterations / 2);
+    size_t lightFlag = (light ? 2 : 1);
 
     RDATA_ALIGN16 uint8_t expandedKey[240]; /* These buffers are aligned to use later with SSE functions */
 
